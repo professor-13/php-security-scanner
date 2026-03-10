@@ -1,0 +1,25 @@
+# Binary
+php-security-scanner.exe
+php-security-scanner
+
+# Reports output
+/report/
+/test-report/
+
+# Config files generated at runtime
+.php-scanner.json
+custom-rules.json
+semgrep-rules.json
+baseline.json
+full-baseline.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
