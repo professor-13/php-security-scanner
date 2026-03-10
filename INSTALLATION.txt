@@ -1,0 +1,406 @@
+================================================================================
+  PHP SECURITY SCANNER - INSTALLATION & REQUIREMENTS GUIDE
+  Version: 2.0.0
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+  1. System Requirements
+  2. Install Go (Required)
+  3. Download the Scanner
+  4. Build from Source
+  5. Verify Installation
+  6. First Scan
+  7. Output Formats
+  8. Configuration
+  9. Semgrep Rule Import
+  10. CI/CD Integration
+  11. Troubleshooting
+
+================================================================================
+  1. SYSTEM REQUIREMENTS
+================================================================================
+
+  Operating System:
+    - Windows 10/11 (x64)
+    - macOS 12+ (Intel or Apple Silicon)
+    - Linux (any modern distro: Ubuntu 20.04+, Debian 11+, CentOS 8+, etc.)
+
+  Software:
+    - Go 1.21 or later  (REQUIRED - the only dependency)
+    - Git               (to clone the repository)
+
+  Hardware:
+    - Minimum: 512 MB RAM, 100 MB disk space
+    - Recommended: 2+ GB RAM for large codebases (10,000+ PHP files)
+
+  NOTE: This tool has ZERO external Go dependencies. It uses only the Go
+        standard library. No pip, npm, composer, or package manager needed.
+
+================================================================================
+  2. INSTALL GO (REQUIRED)
+================================================================================
+
+  Go is the only requirement. Pick your operating system below.
+
+  --- WINDOWS ---
+
+  Option A: Using winget (recommended)
+    1. Open Command Prompt or PowerShell as Administrator
+    2. Run:
+         winget install GoLang.Go
+    3. Close and reopen your terminal
+    4. Verify:
+         go version
+
+  Option B: Manual download
+    1. Visit: https://go.dev/dl/
+    2. Download the Windows .msi installer (e.g., go1.23.x.windows-amd64.msi)
+    3. Run the installer, accept defaults
+    4. Close and reopen your terminal
+    5. Verify:
+         go version
+
+  --- macOS ---
+
+  Option A: Using Homebrew (recommended)
+    1. Open Terminal
+    2. Run:
+         brew install go
+    3. Verify:
+         go version
+
+  Option B: Manual download
+    1. Visit: https://go.dev/dl/
+    2. Download the macOS .pkg installer
+    3. Run the installer
+    4. Verify:
+         go version
+
+  --- LINUX (Ubuntu/Debian) ---
+
+    1. Open Terminal
+    2. Run:
+         sudo apt update
+         sudo apt install -y golang-go
+    3. Verify:
+         go version
+
+    OR download latest from https://go.dev/dl/:
+         wget https://go.dev/dl/go1.23.4.linux-amd64.tar.gz
+         sudo rm -rf /usr/local/go
+         sudo tar -C /usr/local -xzf go1.23.4.linux-amd64.tar.gz
+         echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc
+         source ~/.bashrc
+         go version
+
+  --- LINUX (CentOS/RHEL/Fedora) ---
+
+    1. Run:
+         sudo dnf install -y golang
+    2. Verify:
+         go version
+
+================================================================================
+  3. DOWNLOAD THE SCANNER
+================================================================================
+
+  Option A: Clone with Git (recommended)
+    git clone https://github.com/professor-13/php-security-scanner.git
+    cd php-security-scanner
+
+  Option B: Download ZIP
+    1. Visit: https://github.com/professor-13/php-security-scanner
+    2. Click "Code" button -> "Download ZIP"
+    3. Extract the ZIP file
+    4. Open a terminal in the extracted folder
+
+================================================================================
+  4. BUILD FROM SOURCE
+================================================================================
+
+  After cloning/downloading and entering the project directory:
+
+  Step 1: Build the binary
+
+    --- Windows ---
+      go build -o php-security-scanner.exe .
+
+    --- macOS / Linux ---
+      go build -o php-security-scanner .
+
+  Step 2: (Optional) Install globally
+
+    --- Windows ---
+      copy php-security-scanner.exe C:\Windows\System32\
+
+    --- macOS / Linux ---
+      sudo cp php-security-scanner /usr/local/bin/
+      sudo chmod +x /usr/local/bin/php-security-scanner
+
+  That's it! No other dependencies to install.
+
+================================================================================
+  5. VERIFY INSTALLATION
+================================================================================
+
+  Run the following command to check the tool is working:
+
+    ./php-security-scanner --version
+
+  Expected output:
+
+    PHP Security Scanner v2.0.0
+
+  View all available flags:
+
+    ./php-security-scanner --help
+
+================================================================================
+  6. FIRST SCAN
+================================================================================
+
+  Basic scan of a PHP project:
+
+    ./php-security-scanner /path/to/your/php/project
+
+  Scan with minimum severity filter:
+
+    ./php-security-scanner -s high /path/to/your/php/project
+
+  Scan a single PHP file:
+
+    ./php-security-scanner /path/to/file.php
+
+  Scan and exclude vendor/test directories:
+
+    ./php-security-scanner -e "vendor/*,test/*,tests/*" /path/to/project
+
+  After the scan completes, you will see:
+    - Terminal output with color-coded findings
+    - An HTML report in ./report/php-security-report.html
+
+================================================================================
+  7. OUTPUT FORMATS
+================================================================================
+
+  The scanner supports 4 output formats:
+
+  Terminal (always shown):
+    ./php-security-scanner ./src
+
+  HTML Report (generated by default):
+    Open ./report/php-security-report.html in your browser
+
+  JSON Report:
+    ./php-security-scanner --json ./src
+    -> Creates ./report/php-security-report.json
+
+  SARIF Report (for GitHub/CI/CD):
+    ./php-security-scanner --sarif ./src
+    -> Creates ./report/php-security-report.sarif
+
+  All formats at once:
+    ./php-security-scanner --json --sarif ./src
+
+  Skip HTML (terminal only):
+    ./php-security-scanner --no-html ./src
+
+  Custom output directory:
+    ./php-security-scanner -o ./my-results ./src
+
+================================================================================
+  8. CONFIGURATION
+================================================================================
+
+  --- Project Config File ---
+
+  Create a .php-scanner.json in your project root:
+
+    ./php-security-scanner --init-config
+
+  This generates a config file you can customize:
+    {
+      "min_severity": "low",
+      "exclude_patterns": ["vendor/*", "node_modules/*"],
+      "output_dir": "./report",
+      "disabled_rules": [],
+      "concurrency": 0,
+      "context_lines": 3
+    }
+
+  CLI flags always override config file values.
+
+  --- Custom Rules ---
+
+  Create an example custom rules file:
+
+    ./php-security-scanner --init-rules
+
+  Load custom rules from a directory:
+
+    ./php-security-scanner --rules-dir ./my-rules ./src
+
+  --- Disable Specific Rules ---
+
+    ./php-security-scanner --disable-rule "AUTH-001,INFO-007" ./src
+
+  --- Inline Suppression ---
+
+  Add "// nosec" to a line of PHP code to suppress findings on that line:
+
+    echo $user_input; // nosec - intentionally unescaped
+
+  View suppressed findings:
+
+    ./php-security-scanner --show-suppressed ./src
+
+  --- Baseline Comparison ---
+
+  Save current scan as baseline:
+
+    ./php-security-scanner --save-baseline baseline.json ./src
+
+  Show only NEW findings since baseline:
+
+    ./php-security-scanner --baseline baseline.json ./src
+
+================================================================================
+  9. SEMGREP RULE IMPORT
+================================================================================
+
+  Import Semgrep PHP rules and convert them to scanner format:
+
+  Single file:
+    ./php-security-scanner import-semgrep ./rules/php-sqli.yaml
+
+  Directory of YAML files:
+    ./php-security-scanner import-semgrep ./semgrep-rules/php/
+
+  Custom output file:
+    ./php-security-scanner import-semgrep -o my-rules.json ./rules.yaml
+
+  Then use imported rules:
+    ./php-security-scanner --rules-dir . ./src
+
+  NOTE: Only PHP rules are imported. Rules for other languages are skipped.
+        Complex Semgrep patterns may be simplified during conversion.
+
+================================================================================
+  10. CI/CD INTEGRATION
+================================================================================
+
+  --- GitHub Actions ---
+
+  Add this to .github/workflows/security-scan.yml:
+
+    name: PHP Security Scan
+    on: [push, pull_request]
+    jobs:
+      scan:
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-go@v5
+            with:
+              go-version: '1.21'
+          - name: Build scanner
+            run: |
+              git clone https://github.com/professor-13/php-security-scanner.git /tmp/scanner
+              cd /tmp/scanner && go build -o /usr/local/bin/php-security-scanner .
+          - name: Run scan
+            run: php-security-scanner --sarif -s high -e "vendor/*,test/*" ./src
+          - name: Upload SARIF
+            uses: github/codeql-action/upload-sarif@v3
+            with:
+              sarif_file: report/php-security-report.sarif
+
+  --- Exit Codes ---
+
+    0 = No critical or high severity findings
+    1 = Critical or high severity findings detected
+    2 = Scanner error (bad arguments, file not found, etc.)
+
+  Use exit code 1 to fail CI builds when critical issues are found.
+
+================================================================================
+  11. TROUBLESHOOTING
+================================================================================
+
+  Problem: "go: command not found"
+  Solution: Go is not installed or not in PATH.
+    - Windows: Close and reopen terminal after installing Go
+    - Linux: Add to PATH:  export PATH=$PATH:/usr/local/go/bin
+    - Verify with:  go version
+
+  Problem: "cannot find module providing package..."
+  Solution: Make sure you're in the project root directory (where go.mod is).
+    - cd php-security-scanner
+    - go build -o php-security-scanner .
+
+  Problem: Scanner finds too many false positives
+  Solution:
+    - Use -s high to filter low-severity findings
+    - Use --disable-rule to turn off noisy rules
+    - Use // nosec inline comments to suppress known safe code
+    - Create a .php-scanner.json config with your preferred settings
+
+  Problem: Scanner runs slowly on large projects
+  Solution:
+    - Use -e "vendor/*,node_modules/*" to skip dependency folders
+    - Use --concurrency N to control parallel workers
+    - Scan specific subdirectories instead of the entire project
+
+  Problem: HTML report won't open
+  Solution:
+    - Check the ./report/ directory exists
+    - Open php-security-report.html directly in a browser
+    - Use -o /path/to/output to change the output directory
+
+================================================================================
+  VULNERABILITY CATEGORIES DETECTED (25+)
+================================================================================
+
+  - SQL Injection (CWE-89)
+  - Cross-Site Scripting / XSS (CWE-79)
+  - Command Injection (CWE-78)
+  - File Inclusion LFI/RFI (CWE-98)
+  - Path Traversal (CWE-22)
+  - Insecure Deserialization (CWE-502)
+  - SSRF (CWE-918)
+  - Weak Cryptography (CWE-327/328/330)
+  - Authentication & Credentials (CWE-798)
+  - Information Disclosure (CWE-200)
+  - File Upload (CWE-434)
+  - CSRF (CWE-352)
+  - Open Redirect (CWE-601)
+  - XXE (CWE-611)
+  - Insecure Configuration (CWE-16)
+  - Type Juggling (CWE-1025)
+  - Header Injection (CWE-113)
+  - Log Injection (CWE-117)
+  - LDAP Injection (CWE-90)
+  - XPath Injection (CWE-643)
+  - Race Conditions / TOCTOU (CWE-367)
+  - Insecure Transport (CWE-319/295)
+  - Regex DoS / ReDoS (CWE-1333)
+  - Email Injection (CWE-93)
+  - Session Fixation (CWE-384)
+  - Unsafe Object Creation (CWE-470)
+
+================================================================================
+  QUICK REFERENCE
+================================================================================
+
+  Build:         go build -o php-security-scanner .
+  Scan:          ./php-security-scanner ./src
+  High only:     ./php-security-scanner -s high ./src
+  All formats:   ./php-security-scanner --json --sarif ./src
+  Exclude dirs:  ./php-security-scanner -e "vendor/*" ./src
+  Help:          ./php-security-scanner --help
+  Version:       ./php-security-scanner --version
+
+================================================================================
+  LICENSE: This tool is open source. See the repository for license details.
+  Repository: https://github.com/professor-13/php-security-scanner
+================================================================================
