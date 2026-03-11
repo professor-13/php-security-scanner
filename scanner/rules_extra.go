@@ -238,5 +238,183 @@ func GetExtraRules() []Rule {
 			CWE:            "CWE-470",
 			Source:         "builtin",
 		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Plaintext Password Detection (Gap #1)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "PASSWD-001",
+			Category:       "Plaintext Password",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)INSERT\s+INTO\s+.*(?:password|passwd|pwd|user_pass)['")\s,].*VALUES\s*\(`),
+			Description:    "Password inserted into database — verify it is hashed with password_hash()",
+			Recommendation: "Always use password_hash() before storing passwords; never store plaintext",
+			CWE:            "CWE-256",
+			Source:         "builtin",
+		},
+		{
+			ID:             "PASSWD-002",
+			Category:       "Plaintext Password",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(WHERE|AND)\s+.*(?:password|passwd|pwd)\s*=\s*['"]\s*\$`),
+			Description:    "Password compared in plaintext in SQL query (no hash verification)",
+			Recommendation: "Use password_verify() to check passwords against stored hashes; never compare in SQL",
+			CWE:            "CWE-256",
+			Source:         "builtin",
+		},
+		{
+			ID:             "PASSWD-003",
+			Category:       "Plaintext Password",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(WHERE|AND)\s+.*(?:password|passwd|pwd)\s*=\s*['"]?\s*\$_(POST|GET|REQUEST)`),
+			Description:    "User password directly compared in SQL WHERE clause",
+			Recommendation: "Retrieve hash from DB and use password_verify($input, $hash) instead",
+			CWE:            "CWE-256",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// PCI-DSS / Sensitive Data Storage (Gap #2)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "PCI-001",
+			Category:       "Sensitive Data Storage",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)INSERT\s+INTO\s+.*(?:cardnumber|card_number|cc_number|credit_card|card_num)['")\s,]`),
+			Description:    "Credit card number being stored in database (PCI-DSS violation)",
+			Recommendation: "Never store full card numbers; use a payment gateway (Stripe, PayPal); PCI-DSS requires tokenization",
+			CWE:            "CWE-312",
+			Source:         "builtin",
+		},
+		{
+			ID:             "PCI-002",
+			Category:       "Sensitive Data Storage",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)INSERT\s+INTO\s+.*(?:cvv|cvc|cvv2|cvc2|security_code|card_code)['")\s,]`),
+			Description:    "CVV/CVC being stored in database (PCI-DSS explicitly prohibits this)",
+			Recommendation: "NEVER store CVV/CVC data; process payments through a certified payment gateway",
+			CWE:            "CWE-312",
+			Source:         "builtin",
+		},
+		{
+			ID:             "PCI-003",
+			Category:       "Sensitive Data Storage",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)\$_(POST|GET|REQUEST)\s*\[\s*['"](?:cardnumber|card_number|cc_number|cvv|cvc|expdate|exp_date|card_exp)`),
+			Description:    "Credit card data received from user input — ensure it is not stored",
+			Recommendation: "Send card data directly to payment processor; never store on your server",
+			CWE:            "CWE-312",
+			Source:         "builtin",
+		},
+		{
+			ID:             "PCI-004",
+			Category:       "Sensitive Data Storage",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)INSERT\s+INTO\s+.*(?:ssn|social_security|national_id|tax_id)['")\s,]`),
+			Description:    "Sensitive PII (SSN/national ID) being stored — ensure proper encryption",
+			Recommendation: "Encrypt sensitive PII at rest; restrict access; comply with data protection laws",
+			CWE:            "CWE-312",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Information Leakage — DB Errors (Gap #6)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "INFO-008",
+			Category:       "Information Disclosure",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)(echo|print|die|exit)\s*\(?\s*(mysqli_error|mysql_error|pg_last_error|sqlsrv_errors)\s*\(`),
+			Description:    "Database error message displayed to user (leaks DB structure)",
+			Recommendation: "Log errors to file with error_log(); show generic error messages to users",
+			CWE:            "CWE-209",
+			Source:         "builtin",
+		},
+		{
+			ID:             "INFO-009",
+			Category:       "Information Disclosure",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)(echo|print|die|exit)\s*\(?\s*\$[a-zA-Z_]*err`),
+			Description:    "Error variable echoed to user output",
+			Recommendation: "Log errors internally; display user-friendly error messages",
+			CWE:            "CWE-209",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Insecure Session Handling (Gap #8)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "SESSION-002",
+			Category:       "Insecure Session",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)unset\s*\(\s*\$_SESSION\s*\[`),
+			Description:    "Session variable unset individually (may leave session partially active)",
+			Recommendation: "Use session_destroy() and session_unset() for complete logout; regenerate session ID",
+			CWE:            "CWE-613",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Business Logic Flaws (Gap #9)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "LOGIC-001",
+			Category:       "Business Logic",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)\$_(POST|GET|REQUEST)\s*\[\s*['"](?:total|price|amount|cost|subtotal|grand_total|total_price|total_amount|order_total|final_price)['"]`),
+			Description:    "Price/total received from client input (attacker can modify)",
+			Recommendation: "NEVER trust client-side prices; always recalculate totals server-side from DB prices",
+			CWE:            "CWE-20",
+			Source:         "builtin",
+		},
+		{
+			ID:             "LOGIC-002",
+			Category:       "Business Logic",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)SELECT\s+MAX\s*\(\s*\w*id\w*\s*\)\s*\+\s*1`),
+			Description:    "Auto-increment ID generated via SELECT MAX()+1 (race condition vulnerability)",
+			Recommendation: "Use database AUTO_INCREMENT or sequences; MAX()+1 causes duplicates under concurrency",
+			CWE:            "CWE-362",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Missing Input Validation (Gap #10)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "VALID-001",
+			Category:       "Input Validation",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)\$_(POST|GET|REQUEST)\s*\[\s*['"](email|e_mail|user_email)['"]\s*\]\s*;`),
+			Description:    "Email from user input used without validation",
+			Recommendation: "Use filter_var($email, FILTER_VALIDATE_EMAIL) to validate email format",
+			CWE:            "CWE-20",
+			Source:         "builtin",
+		},
+		{
+			ID:             "VALID-002",
+			Category:       "Input Validation",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)\$_(POST|GET|REQUEST)\s*\[\s*['"](url|website|link|redirect|callback|return_url)['"]\s*\]\s*;`),
+			Description:    "URL from user input used without validation",
+			Recommendation: "Use filter_var($url, FILTER_VALIDATE_URL) and whitelist allowed domains",
+			CWE:            "CWE-20",
+			Source:         "builtin",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
+		// Missing Security Headers (Gap #7)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "COOKIE-001",
+			Category:       "Insecure Cookie",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)setcookie\s*\([^)]*\)\s*;`),
+			Description:    "Cookie set without Secure/HttpOnly/SameSite flags",
+			Recommendation: "Use setcookie() with secure=true, httponly=true, samesite='Strict'",
+			CWE:            "CWE-614",
+			Source:         "builtin",
+		},
 	}
 }

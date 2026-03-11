@@ -135,6 +135,13 @@ func NewTaintTracker(filePath string, lines []string) *TaintTracker {
 	}
 }
 
+// Secondary taint: DB fetch results treated as potentially tainted (stored XSS)
+var dbFetchPattern = regexp.MustCompile(`(?i)(\$[a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(mysqli_fetch_array|mysqli_fetch_assoc|mysqli_fetch_row|mysqli_fetch_object|mysql_fetch_array|mysql_fetch_assoc|mysql_fetch_row|pg_fetch_array|pg_fetch_assoc|pg_fetch_row|->fetch)\s*\(`)
+var dbRowAccessPattern = regexp.MustCompile(`(?i)(\$[a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(\$[a-zA-Z_][a-zA-Z0-9_]*)\s*\[\s*['"]([a-zA-Z_][a-zA-Z0-9_]*)['"]`)
+
+// HTML context patterns — lines that are inside echo/print string output
+var htmlOutputContextRe = regexp.MustCompile(`(?i)(echo|print)\s+['"].*`)
+
 // Analyze performs intraprocedural taint analysis on all lines
 func (t *TaintTracker) Analyze() []TaintFlow {
 	for lineNum, line := range t.lines {
@@ -149,6 +156,9 @@ func (t *TaintTracker) Analyze() []TaintFlow {
 		// Step 1: Check for new taint sources (direct assignment from superglobal)
 		t.checkSourceAssignment(line, lineNo)
 
+		// Step 1b: Check for secondary taint sources (DB fetch results → stored XSS)
+		t.checkDBFetchSource(line, lineNo)
+
 		// Step 2: Check for taint propagation (assignment from tainted var)
 		t.checkPropagation(line, lineNo)
 
@@ -160,6 +170,58 @@ func (t *TaintTracker) Analyze() []TaintFlow {
 	}
 
 	return t.flows
+}
+
+// checkDBFetchSource marks DB fetch results as secondary taint sources (for stored XSS)
+func (t *TaintTracker) checkDBFetchSource(line string, lineNo int) {
+	// Check for $row = mysqli_fetch_array(...) patterns
+	matches := dbFetchPattern.FindStringSubmatch(line)
+	if matches != nil {
+		rowVar := matches[1]
+		t.taintedVars[rowVar] = &TaintInfo{
+			IsTainted: true,
+			Source: TaintSource{
+				Variable: rowVar,
+				Key:      "database_fetch",
+				File:     t.filePath,
+				Line:     lineNo,
+				Code:     strings.TrimSpace(line),
+			},
+			PropPath: []TaintStep{
+				{
+					File:      t.filePath,
+					Line:      lineNo,
+					Code:      strings.TrimSpace(line),
+					Operation: "source",
+					Variable:  rowVar,
+				},
+			},
+		}
+		return
+	}
+
+	// Check for $var = $row['column'] patterns (propagate DB row taint)
+	rowMatches := dbRowAccessPattern.FindStringSubmatch(line)
+	if rowMatches != nil {
+		targetVar := rowMatches[1]
+		sourceVar := rowMatches[2]
+		if info, exists := t.taintedVars[sourceVar]; exists && info.IsTainted {
+			newPath := make([]TaintStep, len(info.PropPath))
+			copy(newPath, info.PropPath)
+			newPath = append(newPath, TaintStep{
+				File:      t.filePath,
+				Line:      lineNo,
+				Code:      strings.TrimSpace(line),
+				Operation: "assignment",
+				Variable:  targetVar,
+			})
+			t.taintedVars[targetVar] = &TaintInfo{
+				IsTainted: true,
+				Source:    info.Source,
+				PropPath:  newPath,
+			}
+		}
+	}
 }
 
 // checkSourceAssignment checks if a line assigns a superglobal to a variable
@@ -275,6 +337,10 @@ func (t *TaintTracker) checkSanitization(line string, lineNo int) {
 	}
 }
 
+// Patterns for detecting false positive sink contexts
+var headerFuncRe = regexp.MustCompile(`(?i)\bheader\s*\(`)
+var includeRequireFuncRe = regexp.MustCompile(`(?i)\b(include|require)(_once)?\s*[\(]`)
+
 // checkSinks checks if a line passes tainted data to a dangerous function
 func (t *TaintTracker) checkSinks(line string, lineNo int) {
 	lowerLine := strings.ToLower(line)
@@ -285,12 +351,43 @@ func (t *TaintTracker) checkSinks(line string, lineNo int) {
 			continue
 		}
 
+		// === False positive filters for HTML context ===
+
+		// Filter: "header" sink should only match actual header() function calls,
+		// not href= attributes in echoed HTML strings like: echo "<a href='...'>"
+		if sink.Function == "header" {
+			if !headerFuncRe.MatchString(line) {
+				continue // Skip — "header" appears in HTML context, not as function call
+			}
+		}
+
+		// Filter: "include"/"require" sinks should only match actual PHP statements,
+		// not HTML attributes like "required" or text containing "include"
+		if sink.Function == "include" || sink.Function == "include_once" ||
+			sink.Function == "require" || sink.Function == "require_once" {
+			if !includeRequireFuncRe.MatchString(line) {
+				continue // Skip — appears in HTML context
+			}
+			// Also skip if inside an echo/print statement (HTML output)
+			if htmlOutputContextRe.MatchString(line) {
+				continue
+			}
+		}
+
 		// Check if any tainted variable appears in this function call
 		referencedVars := variablePattern.FindAllString(line, -1)
 		for _, ref := range referencedVars {
 			info, exists := t.taintedVars[ref]
 			if !exists || !info.IsTainted || info.Sanitized {
 				continue
+			}
+
+			// For DB-sourced taint, only report for XSS sinks (stored XSS)
+			// Don't report DB data flowing to SQL sinks (that's just normal queries)
+			if info.Source.Key == "database_fetch" {
+				if sink.Category != "Cross-Site Scripting" {
+					continue
+				}
 			}
 
 			// Check if there's a relevant sanitizer on this line

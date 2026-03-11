@@ -4,28 +4,33 @@ A local PHP secure code review tool (SAST) built in Go. Zero external dependenci
 
 ```
 ╔══════════════════════════════════════════════════╗
-║   PHP Security Scanner v2.0.0                    ║
+║   PHP Security Scanner v2.1.0                    ║
 ║   OWASP Top 10 + Taint Analysis SAST Tool       ║
-║   109+ Detection Rules | 25+ Categories          ║
+║   133+ Detection Rules | 30+ Categories          ║
 ╚══════════════════════════════════════════════════╝
 ```
 
 ## Features
 
-- **109+ detection rules** covering 25+ vulnerability categories
+- **133+ detection rules** covering 30+ vulnerability categories
 - **Intraprocedural taint tracking** — traces user input from source to sink
+- **Stored XSS detection** — DB fetch results tracked as secondary taint sources
 - **4 output formats** — Terminal (color-coded), HTML, JSON, SARIF
 - **Sanitizer-aware** — recognizes `htmlspecialchars()`, `prepared statements`, WordPress escaping functions, etc.
 - **Confidence scoring** — High / Medium / Low confidence for every finding
 - **Rule deduplication** — consolidates overlapping regex + taint findings
 - **Flow visualization** — displays full taint path (source → assignment → sink) in all reports
+- **Secret scanning** — detects hardcoded JWT, Stripe, SendGrid, GitHub, Slack tokens
+- **PCI-DSS checks** — flags credit card / CVV / SSN storage violations
+- **Business logic flaws** — detects client-side price manipulation, MAX()+1 race conditions
+- **Missing security headers** — X-Frame-Options, CSP, HSTS, X-Content-Type-Options
 - **Semgrep rule import** — convert Semgrep YAML rules to scanner format
 - **Baseline comparison** — track only new findings between scans
 - **Framework detection** — Laravel, WordPress, Symfony, CodeIgniter, CakePHP
 - **Concurrent scanning** — parallel file processing with configurable workers
 - **Project config file** — `.php-scanner.json` for per-project settings
 - **Inline suppression** — `// nosec` comments to mark intentional patterns
-- **CI/CD ready** — SARIF output for GitHub Code Scanning, exit codes for build gates
+- **CI/CD ready** — SARIF output with CodeFlows for GitHub Code Scanning, exit codes for build gates
 - **Zero dependencies** — pure Go standard library, single binary
 
 ## Requirements
@@ -125,38 +130,50 @@ Utility Flags:
 
 ## Vulnerability Categories
 
-| Category | CWE | Rules |
-|----------|-----|-------|
-| SQL Injection | CWE-89 | SQL-001 to SQL-008 |
-| Cross-Site Scripting (XSS) | CWE-79 | XSS-001 to XSS-007 |
-| Command Injection | CWE-78/94 | CMD-001 to CMD-009 |
-| File Inclusion (LFI/RFI) | CWE-98 | FI-001 to FI-003 |
-| Path Traversal | CWE-22 | PT-001 to PT-007 |
-| Insecure Deserialization | CWE-502 | DESER-001 to DESER-003 |
-| SSRF | CWE-918 | SSRF-001 to SSRF-004 |
-| Weak Cryptography | CWE-327/328/330 | CRYPTO-001 to CRYPTO-008 |
-| Hardcoded Credentials | CWE-798 | AUTH-001 to AUTH-015 |
-| Information Disclosure | CWE-200/209 | INFO-001 to INFO-007 |
-| File Upload | CWE-434 | UPLOAD-001 to UPLOAD-004 |
-| CSRF | CWE-352 | CSRF-001 to CSRF-002 |
-| Open Redirect | CWE-601 | REDIR-001 to REDIR-002 |
-| XXE | CWE-611 | XXE-001 to XXE-005 |
-| Insecure Configuration | CWE-16/384 | CONFIG-001 to CONFIG-007 |
-| Type Juggling | CWE-1025 | TYPE-001 to TYPE-003 |
-| Header Injection | CWE-113 | HEADER-001 to HEADER-002 |
-| Log Injection | CWE-117 | LOG-001 to LOG-002 |
-| LDAP Injection | CWE-90 | LDAP-001 to LDAP-002 |
-| XPath Injection | CWE-643 | XPATH-001 |
-| Race Condition (TOCTOU) | CWE-367 | RACE-001 |
-| Insecure Transport | CWE-319/295 | HTTP-001 to HTTP-003 |
-| Regex DoS (ReDoS) | CWE-1333 | REDOS-001 |
-| Email Injection | CWE-93 | EMAIL-001 |
-| Session Fixation | CWE-384 | SESSION-001 |
-| Unsafe Object Creation | CWE-470 | OBJ-001 to OBJ-002 |
+| # | Category | CWE | Rules |
+|---|----------|-----|-------|
+| 1 | SQL Injection | CWE-89 | SQL-001 to SQL-008 |
+| 2 | Cross-Site Scripting (XSS) | CWE-79 | XSS-001 to XSS-007 |
+| 3 | Command Injection | CWE-78/94 | CMD-001 to CMD-009 |
+| 4 | File Inclusion (LFI/RFI) | CWE-98 | FI-001 to FI-003 |
+| 5 | Path Traversal | CWE-22 | PT-001 to PT-007 |
+| 6 | Insecure Deserialization | CWE-502 | DESER-001 to DESER-003 |
+| 7 | SSRF | CWE-918 | SSRF-001 to SSRF-004 |
+| 8 | Weak Cryptography | CWE-327/328/330 | CRYPTO-001 to CRYPTO-008 |
+| 9 | Hardcoded Credentials | CWE-798 | AUTH-001 to AUTH-015 |
+| 10 | Secret Scanning | CWE-798 | SECRET-001 to SECRET-010 |
+| 11 | Information Disclosure | CWE-200/209 | INFO-001 to INFO-009 |
+| 12 | File Upload | CWE-434 | UPLOAD-001 to UPLOAD-004 |
+| 13 | CSRF | CWE-352 | CSRF-001 to CSRF-003 |
+| 14 | Open Redirect | CWE-601 | REDIR-001 to REDIR-002 |
+| 15 | XXE | CWE-611 | XXE-001 to XXE-005 |
+| 16 | Insecure Configuration | CWE-16/384 | CONFIG-001 to CONFIG-007 |
+| 17 | Type Juggling | CWE-1025 | TYPE-001 to TYPE-003 |
+| 18 | Header Injection | CWE-113 | HEADER-001 to HEADER-002 |
+| 19 | Missing Security Headers | CWE-1021/16/319 | HEADER-003 to HEADER-006 |
+| 20 | Log Injection | CWE-117 | LOG-001 to LOG-002 |
+| 21 | LDAP Injection | CWE-90 | LDAP-001 to LDAP-002 |
+| 22 | XPath Injection | CWE-643 | XPATH-001 |
+| 23 | Race Condition (TOCTOU) | CWE-367 | RACE-001 |
+| 24 | Insecure Transport | CWE-319/295 | HTTP-001 to HTTP-003 |
+| 25 | Regex DoS (ReDoS) | CWE-1333 | REDOS-001 |
+| 26 | Email Injection | CWE-93 | EMAIL-001 |
+| 27 | Session Fixation | CWE-384 | SESSION-001 |
+| 28 | Insecure Session | CWE-613 | SESSION-002 to SESSION-003 |
+| 29 | Unsafe Object Creation | CWE-470 | OBJ-001 to OBJ-002 |
+| 30 | Plaintext Password | CWE-256 | PASSWD-001 to PASSWD-003 |
+| 31 | Sensitive Data (PCI-DSS) | CWE-312 | PCI-001 to PCI-004 |
+| 32 | Business Logic | CWE-20/362 | LOGIC-001 to LOGIC-002 |
+| 33 | Input Validation | CWE-20 | VALID-001 to VALID-002 |
+| 34 | Insecure Cookie | CWE-614 | COOKIE-001 |
 
 ## Taint Tracking
 
 The scanner performs intraprocedural taint analysis to trace user input (`$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`) through variable assignments to dangerous sinks (`mysqli_query()`, `echo`, `exec()`, etc.).
+
+**Primary sources:** PHP superglobals (`$_GET`, `$_POST`, `$_REQUEST`, `$_COOKIE`, `$_FILES`, `php://input`)
+
+**Secondary sources:** Database fetch results (`mysqli_fetch_array()`, `->fetch()`) for stored XSS detection
 
 Taint findings include full flow traces:
 
@@ -251,11 +268,11 @@ php-security-scanner/
   go.mod                       # Go module (zero external dependencies)
   scanner/
     models.go                  # Data types (Finding, Rule, ScanConfig, FlowStep)
-    scanner.go                 # Core scanning engine, taint integration, dedup
-    rules.go                   # 86 built-in OWASP detection rules
-    rules_extra.go             # 23 additional rules (type juggling, LDAP, etc.)
-    taint.go                   # Intraprocedural taint tracking engine
-    sanitizers.go              # Sanitizer detection (50+ PHP functions)
+    scanner.go                 # Core engine: regex+taint scanning, dedup, CSRF/TOCTOU/header checks
+    rules.go                   # 86+ built-in OWASP detection rules + secret scanning
+    rules_extra.go             # 40+ additional rules (type juggling, PCI, passwords, etc.)
+    taint.go                   # Intraprocedural taint tracking engine + stored XSS
+    sanitizers.go              # Sanitizer detection (50+ PHP functions, context-aware)
     framework.go               # Framework detection (Laravel, WordPress, etc.)
     config.go                  # Project config file (.php-scanner.json)
     cache.go                   # File content caching

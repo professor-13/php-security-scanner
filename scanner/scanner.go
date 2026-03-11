@@ -303,6 +303,20 @@ func scanFileAdvanced(filePath string, rules []Rule, config ScanConfig) ([]Findi
 				continue
 			}
 
+			// Post-match: skip XSS-004 if echo line uses htmlspecialchars/htmlentities wrapping
+			if rules[i].ID == "XSS-004" {
+				lowerCheck := strings.ToLower(line)
+				if strings.Contains(lowerCheck, "htmlspecialchars(") ||
+					strings.Contains(lowerCheck, "htmlentities(") ||
+					strings.Contains(lowerCheck, "strip_tags(") ||
+					strings.Contains(lowerCheck, "esc_html(") ||
+					strings.Contains(lowerCheck, "esc_attr(") ||
+					strings.Contains(lowerCheck, "urlencode(") ||
+					strings.Contains(lowerCheck, "json_encode(") {
+					continue
+				}
+			}
+
 			// Post-match: skip AUTH rules if variable name has safe suffix
 			if strings.HasPrefix(rules[i].ID, "AUTH-001") || strings.HasPrefix(rules[i].ID, "AUTH-002") {
 				varName := extractVariable(match)
@@ -412,6 +426,14 @@ func scanFileAdvanced(filePath string, rules []Rule, config ScanConfig) ([]Findi
 	// Pass 4: Smart CSRF form check (multi-line)
 	csrfFindings := checkCSRFForm(allLines, slashPath, config)
 	findings = append(findings, csrfFindings...)
+
+	// Pass 5: Insecure logout check (unset without session_destroy)
+	logoutFindings := checkInsecureLogout(allLines, slashPath, config)
+	findings = append(findings, logoutFindings...)
+
+	// Pass 6: Missing security headers check (file-level)
+	headerFindings := checkMissingSecurityHeaders(allLines, slashPath, config)
+	findings = append(findings, headerFindings...)
 
 	// Post-pass: Filter out CSRF-001 regex findings (replaced by smart check)
 	var filtered []Finding
@@ -897,6 +919,190 @@ func checkCSRFForm(allLines []string, filePath string, config ScanConfig) []Find
 			})
 		}
 		// If hasCSRFToken, no finding — form is properly protected
+	}
+
+	return findings
+}
+
+// checkInsecureLogout detects files where $_SESSION variables are individually unset
+// without a call to session_destroy() — leaving the session partially active.
+var sessionUnsetRe = regexp.MustCompile(`(?i)unset\s*\(\s*\$_SESSION\s*\[`)
+var sessionDestroyRe = regexp.MustCompile(`(?i)session_destroy\s*\(`)
+
+func checkInsecureLogout(allLines []string, filePath string, config ScanConfig) []Finding {
+	var findings []Finding
+
+	// First pass: check if file has session unset AND lacks session_destroy
+	hasSessionUnset := false
+	hasSessionDestroy := false
+	var unsetLines []int
+
+	for lineIdx, line := range allLines {
+		if sessionUnsetRe.MatchString(line) {
+			hasSessionUnset = true
+			unsetLines = append(unsetLines, lineIdx)
+		}
+		if sessionDestroyRe.MatchString(line) {
+			hasSessionDestroy = true
+		}
+	}
+
+	// Only report if there are session unsets but no session_destroy anywhere in file
+	if hasSessionUnset && !hasSessionDestroy {
+		// Report on the first unset line
+		if len(unsetLines) > 0 {
+			lineIdx := unsetLines[0]
+			lineNumber := lineIdx + 1
+
+			rule := &Rule{
+				ID:             "SESSION-003",
+				Category:       "Insecure Session",
+				Severity:       SeverityHigh,
+				Description:    fmt.Sprintf("Logout uses unset($_SESSION[...]) without session_destroy() — session remains active (%d unset calls found)", len(unsetLines)),
+				Recommendation: "Use session_unset() + session_destroy() + session_regenerate_id(true) for complete logout",
+				CWE:            "CWE-613",
+				Source:         "builtin",
+			}
+
+			contextBefore := getContextLines(allLines, lineIdx, config.ContextLines, true)
+			contextAfter := getContextLines(allLines, lineIdx, config.ContextLines, false)
+
+			findings = append(findings, Finding{
+				Rule:          rule,
+				FilePath:      filePath,
+				LineNumber:    lineNumber,
+				LineText:      strings.TrimSpace(allLines[lineIdx]),
+				MatchText:     "unset($_SESSION[...]) without session_destroy()",
+				Confidence:    ConfidenceMedium,
+				ContextBefore: contextBefore,
+				ContextAfter:  contextAfter,
+			})
+		}
+	}
+
+	return findings
+}
+
+// checkMissingSecurityHeaders detects PHP files that produce output (echo/print/HTML)
+// but lack important security response headers.
+var securityHeaderCSPRe = regexp.MustCompile(`(?i)header\s*\(\s*['"]Content-Security-Policy`)
+var securityHeaderXFrameRe = regexp.MustCompile(`(?i)header\s*\(\s*['"]X-Frame-Options`)
+var securityHeaderXContentTypeRe = regexp.MustCompile(`(?i)header\s*\(\s*['"]X-Content-Type-Options`)
+var securityHeaderHSTSRe = regexp.MustCompile(`(?i)header\s*\(\s*['"]Strict-Transport-Security`)
+var htmlOutputRe = regexp.MustCompile(`(?i)(echo\s|print\s|<html|<head|<body|<\!DOCTYPE|\?>.*<)`)
+
+func checkMissingSecurityHeaders(allLines []string, filePath string, config ScanConfig) []Finding {
+	var findings []Finding
+
+	// Only check files that produce output (have echo/print/HTML content)
+	hasOutput := false
+	hasCSP := false
+	hasXFrame := false
+	hasXContentType := false
+	hasHSTS := false
+
+	for _, line := range allLines {
+		if htmlOutputRe.MatchString(line) {
+			hasOutput = true
+		}
+		if securityHeaderCSPRe.MatchString(line) {
+			hasCSP = true
+		}
+		if securityHeaderXFrameRe.MatchString(line) {
+			hasXFrame = true
+		}
+		if securityHeaderXContentTypeRe.MatchString(line) {
+			hasXContentType = true
+		}
+		if securityHeaderHSTSRe.MatchString(line) {
+			hasHSTS = true
+		}
+	}
+
+	// Only report for files that produce output
+	if !hasOutput {
+		return findings
+	}
+
+	// Report missing headers — each gets a unique category to avoid dedup collapsing them
+	if !hasXFrame {
+		rule := &Rule{
+			ID:             "HEADER-003",
+			Category:       "Missing Header: X-Frame-Options",
+			Severity:       SeverityMedium,
+			Description:    "No X-Frame-Options header set (clickjacking risk)",
+			Recommendation: "Add header('X-Frame-Options: DENY') or 'SAMEORIGIN' to prevent clickjacking",
+			CWE:            "CWE-1021",
+			Source:         "builtin",
+		}
+		findings = append(findings, Finding{
+			Rule:       rule,
+			FilePath:   filePath,
+			LineNumber: 1,
+			LineText:   "(file-level check)",
+			MatchText:  "Missing X-Frame-Options header",
+			Confidence: ConfidenceLow,
+		})
+	}
+
+	if !hasXContentType {
+		rule := &Rule{
+			ID:             "HEADER-004",
+			Category:       "Missing Header: X-Content-Type-Options",
+			Severity:       SeverityMedium,
+			Description:    "No X-Content-Type-Options header set (MIME sniffing risk)",
+			Recommendation: "Add header('X-Content-Type-Options: nosniff') to prevent MIME-type sniffing",
+			CWE:            "CWE-16",
+			Source:         "builtin",
+		}
+		findings = append(findings, Finding{
+			Rule:       rule,
+			FilePath:   filePath,
+			LineNumber: 1,
+			LineText:   "(file-level check)",
+			MatchText:  "Missing X-Content-Type-Options header",
+			Confidence: ConfidenceLow,
+		})
+	}
+
+	if !hasCSP {
+		rule := &Rule{
+			ID:             "HEADER-005",
+			Category:       "Missing Header: Content-Security-Policy",
+			Severity:       SeverityLow,
+			Description:    "No Content-Security-Policy header set",
+			Recommendation: "Add Content-Security-Policy header to mitigate XSS and data injection attacks",
+			CWE:            "CWE-16",
+			Source:         "builtin",
+		}
+		findings = append(findings, Finding{
+			Rule:       rule,
+			FilePath:   filePath,
+			LineNumber: 1,
+			LineText:   "(file-level check)",
+			MatchText:  "Missing Content-Security-Policy header",
+			Confidence: ConfidenceLow,
+		})
+	}
+
+	if !hasHSTS {
+		rule := &Rule{
+			ID:             "HEADER-006",
+			Category:       "Missing Header: Strict-Transport-Security",
+			Severity:       SeverityLow,
+			Description:    "No Strict-Transport-Security header set",
+			Recommendation: "Add header('Strict-Transport-Security: max-age=31536000; includeSubDomains') for HTTPS enforcement",
+			CWE:            "CWE-319",
+			Source:         "builtin",
+		}
+		findings = append(findings, Finding{
+			Rule:       rule,
+			FilePath:   filePath,
+			LineNumber: 1,
+			LineText:   "(file-level check)",
+			MatchText:  "Missing Strict-Transport-Security header",
+			Confidence: ConfidenceLow,
+		})
 	}
 
 	return findings
