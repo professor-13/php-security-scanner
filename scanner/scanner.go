@@ -366,6 +366,18 @@ func scanFileAdvanced(filePath string, rules []Rule, config ScanConfig) ([]Findi
 				continue
 			}
 
+			// For remaining findings: if sanitized anywhere in file, demote confidence
+			if !isSanitized {
+				varName := extractVariable(match)
+				if varName != "" {
+					fileSan := CheckSanitizerAnywhere(allLines, lineIdx, varName, rules[i].Category)
+					if fileSan != "" {
+						isSanitized = true
+						sanitizerFunc = fileSan
+					}
+				}
+			}
+
 			findings = append(findings, Finding{
 				Rule:          &rules[i],
 				FilePath:      slashPath,
@@ -397,7 +409,20 @@ func scanFileAdvanced(filePath string, rules []Rule, config ScanConfig) ([]Findi
 	toctouFindings := checkTOCTOU(allLines, slashPath, config)
 	findings = append(findings, toctouFindings...)
 
-	return findings, lineCount, nil
+	// Pass 4: Smart CSRF form check (multi-line)
+	csrfFindings := checkCSRFForm(allLines, slashPath, config)
+	findings = append(findings, csrfFindings...)
+
+	// Post-pass: Filter out CSRF-001 regex findings (replaced by smart check)
+	var filtered []Finding
+	for _, f := range findings {
+		if f.Rule.ID == "CSRF-001" && !f.IsTaintFlow {
+			continue // Skip regex CSRF-001, we use the smart multi-line check instead
+		}
+		filtered = append(filtered, f)
+	}
+
+	return filtered, lineCount, nil
 }
 
 // readFileLines reads all lines from a file
@@ -779,6 +804,99 @@ func checkTOCTOU(allLines []string, filePath string, config ScanConfig) []Findin
 				break
 			}
 		}
+	}
+
+	return findings
+}
+
+// checkCSRFForm detects POST forms that lack CSRF token fields.
+// Scans for <form method="post"> and checks the next 30 lines for a CSRF token input.
+var formPostRe = regexp.MustCompile(`(?i)<form[^>]*method\s*=\s*['"]post['"]`)
+var csrfTokenRe = regexp.MustCompile(`(?i)(csrf|_token|nonce|xsrf|authenticity_token|anti.?forgery|__RequestVerificationToken|csrfmiddlewaretoken)`)
+var formEndRe = regexp.MustCompile(`(?i)</form>`)
+var dbWriteRe = regexp.MustCompile(`(?i)(INSERT|UPDATE|DELETE|mysqli_query|->query|->exec|->execute|->save|->update|->delete|->create|->destroy|->store)`)
+
+func checkCSRFForm(allLines []string, filePath string, config ScanConfig) []Finding {
+	var findings []Finding
+
+	for lineIdx, line := range allLines {
+		if !formPostRe.MatchString(line) {
+			continue
+		}
+		lineNumber := lineIdx + 1
+
+		// Look ahead up to 30 lines for CSRF token or form close
+		lookAhead := 30
+		endIdx := lineIdx + lookAhead + 1
+		if endIdx > len(allLines) {
+			endIdx = len(allLines)
+		}
+
+		hasCSRFToken := false
+		hasDBWrite := false
+		for j := lineIdx + 1; j < endIdx; j++ {
+			if csrfTokenRe.MatchString(allLines[j]) {
+				hasCSRFToken = true
+				break
+			}
+			if dbWriteRe.MatchString(allLines[j]) {
+				hasDBWrite = true
+			}
+			if formEndRe.MatchString(allLines[j]) {
+				break
+			}
+		}
+
+		// Only report if: no CSRF token found AND there's a DB write in the form handler
+		if !hasCSRFToken && hasDBWrite {
+			rule := &Rule{
+				ID:             "CSRF-002",
+				Category:       "CSRF",
+				Severity:       SeverityHigh,
+				Description:    "POST form without CSRF token submits to state-changing operation",
+				Recommendation: "Add a CSRF token hidden field and validate it server-side before DB operations",
+				CWE:            "CWE-352",
+				Source:         "builtin",
+			}
+			contextBefore := getContextLines(allLines, lineIdx, config.ContextLines, true)
+			contextAfter := getContextLines(allLines, lineIdx, config.ContextLines, false)
+
+			findings = append(findings, Finding{
+				Rule:          rule,
+				FilePath:      filePath,
+				LineNumber:    lineNumber,
+				LineText:      strings.TrimSpace(line),
+				MatchText:     "POST form -> no csrf_token -> DB write",
+				Confidence:    ConfidenceHigh,
+				ContextBefore: contextBefore,
+				ContextAfter:  contextAfter,
+			})
+		} else if !hasCSRFToken {
+			// No DB write but still no token — low severity informational
+			rule := &Rule{
+				ID:             "CSRF-003",
+				Category:       "CSRF",
+				Severity:       SeverityLow,
+				Description:    "POST form without visible CSRF token (review if state-changing)",
+				Recommendation: "Consider adding CSRF token if this form performs state-changing operations",
+				CWE:            "CWE-352",
+				Source:         "builtin",
+			}
+			contextBefore := getContextLines(allLines, lineIdx, config.ContextLines, true)
+			contextAfter := getContextLines(allLines, lineIdx, config.ContextLines, false)
+
+			findings = append(findings, Finding{
+				Rule:          rule,
+				FilePath:      filePath,
+				LineNumber:    lineNumber,
+				LineText:      strings.TrimSpace(line),
+				MatchText:     "POST form without CSRF token",
+				Confidence:    ConfidenceLow,
+				ContextBefore: contextBefore,
+				ContextAfter:  contextAfter,
+			})
+		}
+		// If hasCSRFToken, no finding — form is properly protected
 	}
 
 	return findings

@@ -108,7 +108,8 @@ func CheckSanitizerWraps(line string, category string, matchStart int) string {
 	return ""
 }
 
-// CheckSanitizerInContext checks if a variable was sanitized within lookback lines before current
+// CheckSanitizerInContext checks if a variable was sanitized within lookback lines before current.
+// Also checks any category sanitizer (not just matching category) for broader detection.
 func CheckSanitizerInContext(allLines []string, currentLineIdx int, varName string, category string, lookback int) string {
 	if varName == "" {
 		return ""
@@ -121,9 +122,34 @@ func CheckSanitizerInContext(allLines []string, currentLineIdx int, varName stri
 		line := allLines[i]
 		// Check if this line assigns varName using a sanitizer
 		if strings.Contains(line, varName) && strings.Contains(line, "=") {
+			// First try category-specific sanitizer
 			san := CheckSanitizer(line, category)
 			if san != "" {
 				return san + " (context)"
+			}
+			// Also check any sanitizer (cross-category)
+			san = CheckAnySanitizer(line)
+			if san != "" {
+				return san + " (context)"
+			}
+		}
+	}
+	return ""
+}
+
+// CheckSanitizerAnywhere checks the entire file for evidence that a variable
+// has been sanitized before the current line. Uses broader search than lookback.
+func CheckSanitizerAnywhere(allLines []string, currentLineIdx int, varName string, category string) string {
+	if varName == "" {
+		return ""
+	}
+	// Search from start of file up to current line
+	for i := 0; i < currentLineIdx; i++ {
+		line := allLines[i]
+		if strings.Contains(line, varName) {
+			san := CheckSanitizer(line, category)
+			if san != "" {
+				return san + " (file-level)"
 			}
 		}
 	}

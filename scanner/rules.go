@@ -240,7 +240,7 @@ func GetAllRules() []Rule {
 			ID:             "FI-001",
 			Category:       "File Inclusion",
 			Severity:       SeverityCritical,
-			Pattern:        regexp.MustCompile(`(?i)(include|require)(_once)?\s*\(?\s*\$_(GET|POST|REQUEST)`),
+			Pattern:        regexp.MustCompile(`(?i)\b(include|require)(_once)?\s*[\(]\s*\$_(GET|POST|REQUEST)`),
 			Description:    "File inclusion with user input (LFI/RFI vulnerability)",
 			Recommendation: "Never use user input in include/require; use a whitelist of allowed files",
 			CWE:            "CWE-98",
@@ -249,7 +249,7 @@ func GetAllRules() []Rule {
 			ID:             "FI-002",
 			Category:       "File Inclusion",
 			Severity:       SeverityHigh,
-			Pattern:        regexp.MustCompile(`(?i)(include|require)(_once)?\s*\(?\s*\$[a-zA-Z_]`),
+			Pattern:        regexp.MustCompile(`(?i)\b(include|require)(_once)?\s*[\(]\s*\$[a-zA-Z_]`),
 			Description:    "File inclusion with variable (potential LFI)",
 			Recommendation: "Validate file path against a whitelist; use basename() and restrict to a safe directory",
 			CWE:            "CWE-98",
@@ -258,7 +258,7 @@ func GetAllRules() []Rule {
 			ID:             "FI-003",
 			Category:       "File Inclusion",
 			Severity:       SeverityCritical,
-			Pattern:        regexp.MustCompile(`(?i)(include|require)(_once)?\s*\(?\s*["'].*\..*\$_(GET|POST|REQUEST)`),
+			Pattern:        regexp.MustCompile(`(?i)\b(include|require)(_once)?\s*[\(]\s*["'].*\..*\$_(GET|POST|REQUEST)`),
 			Description:    "File inclusion with concatenated user input",
 			Recommendation: "Never concatenate user input into file paths for include/require",
 			CWE:            "CWE-98",
@@ -618,6 +618,100 @@ func GetAllRules() []Rule {
 		},
 
 		// ═══════════════════════════════════════════════════════════════
+		// Secret Scanning (Extended Credential Detection)
+		// ═══════════════════════════════════════════════════════════════
+		{
+			ID:             "SECRET-001",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(jwt_secret|jwt_key|JWT_SECRET)\s*[=:]\s*['"][^'"]{8,}['"]`),
+			Description:    "Hardcoded JWT secret key",
+			Recommendation: "Store JWT secrets in environment variables; rotate keys regularly",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-002",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(sk_live_|sk_test_|pk_live_|pk_test_|rk_live_|rk_test_)[a-zA-Z0-9]{20,}`),
+			Description:    "Stripe API key detected",
+			Recommendation: "Remove Stripe keys from source code; use environment variables",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-003",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(SG\.)[a-zA-Z0-9_-]{22,}\.[a-zA-Z0-9_-]{20,}`),
+			Description:    "SendGrid API key detected",
+			Recommendation: "Remove SendGrid keys from source code; use environment variables",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-004",
+			Category:       "Secret Scanning",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)(twilio|mailgun|sendgrid|slack|discord|telegram)_?(api_?key|token|secret|webhook)\s*[=:]\s*['"][^'"]{8,}['"]`),
+			Description:    "Third-party service API key/token hardcoded",
+			Recommendation: "Store third-party API credentials in environment variables or a secrets manager",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-005",
+			Category:       "Secret Scanning",
+			Severity:       SeverityHigh,
+			Pattern:        regexp.MustCompile(`(?i)(google_api_key|gcp_api_key|firebase_api_key|maps_api_key)\s*[=:]\s*['"][^'"]{10,}['"]`),
+			Description:    "Google/GCP API key hardcoded",
+			Recommendation: "Use environment variables or GCP Secret Manager for API keys",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-006",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`(?i)(DB_PASSWORD|DATABASE_PASSWORD|MYSQL_PASSWORD|POSTGRES_PASSWORD|DB_PASS)\s*[=:]\s*['"][^'"]{3,}['"]`),
+			Description:    "Hardcoded database password in configuration",
+			Recommendation: "Use environment variables for database passwords; never commit credentials",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-007",
+			Category:       "Secret Scanning",
+			Severity:       SeverityMedium,
+			Pattern:        regexp.MustCompile(`(?i)(//|#|/\*)\s*.*(password|secret|token|api.?key|credential)\s*(is|=|:)\s*\S{4,}`),
+			Description:    "Sensitive information possibly disclosed in code comment",
+			Recommendation: "Remove credentials from comments; comments may be visible in version control history",
+			CWE:            "CWE-615",
+		},
+		{
+			ID:             "SECRET-008",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`),
+			Description:    "Google API key detected (AIza pattern)",
+			Recommendation: "Remove API key from source code; use environment variables and restrict key scope",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-009",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`ghp_[0-9A-Za-z]{36}|github_pat_[0-9A-Za-z_]{22,}`),
+			Description:    "GitHub personal access token detected",
+			Recommendation: "Remove GitHub token from source code; use environment variables",
+			CWE:            "CWE-798",
+		},
+		{
+			ID:             "SECRET-010",
+			Category:       "Secret Scanning",
+			Severity:       SeverityCritical,
+			Pattern:        regexp.MustCompile(`xox[bpras]-[0-9A-Za-z-]{10,}`),
+			Description:    "Slack token detected",
+			Recommendation: "Remove Slack token from source code; use environment variables",
+			CWE:            "CWE-798",
+		},
+
+		// ═══════════════════════════════════════════════════════════════
 		// Information Disclosure (OWASP A01:2021)
 		// ═══════════════════════════════════════════════════════════════
 		{
@@ -726,23 +820,15 @@ func GetAllRules() []Rule {
 
 		// ═══════════════════════════════════════════════════════════════
 		// CSRF (OWASP A01:2021 - Broken Access Control)
+		// Note: CSRF-001 is a multi-line check handled in scanner.go (checkCSRFForm)
 		// ═══════════════════════════════════════════════════════════════
 		{
 			ID:             "CSRF-001",
 			Category:       "CSRF",
-			Severity:       SeverityMedium,
-			Pattern:        regexp.MustCompile(`(?i)<form[^>]*method\s*=\s*['"]post['"]`),
-			Description:    "POST form detected -- verify CSRF token is present",
-			Recommendation: "Include a CSRF token in all forms; validate token on the server side",
-			CWE:            "CWE-352",
-		},
-		{
-			ID:             "CSRF-002",
-			Category:       "CSRF",
-			Severity:       SeverityMedium,
-			Pattern:        regexp.MustCompile(`(?i)\$_POST\s*\[\s*['"]`),
-			Description:    "POST data processing -- verify CSRF protection exists",
-			Recommendation: "Verify CSRF token before processing POST data; use framework CSRF middleware",
+			Severity:       SeverityLow,
+			Pattern:        regexp.MustCompile(`(?i)<form[^>]*method\s*=\s*['"]post['"][^>]*>`),
+			Description:    "POST form without visible CSRF token (review context)",
+			Recommendation: "Include a CSRF token in all POST forms; validate token on the server side",
 			CWE:            "CWE-352",
 		},
 
